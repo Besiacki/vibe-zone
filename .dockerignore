@@ -14,3 +14,6 @@ docs/codex*.log
 docs/CODEX_*.md
 docs/EXTRAS.md
 docs/AUDIT2.md
+docs/RUNNER.md
+**/._*
+**/.DS_Store

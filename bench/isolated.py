@@ -61,7 +61,8 @@ class IsolatedRun(runner.Run):
         return ['--runtime', 'runsc', '-e', 'TMPDIR=/data', '-e', 'HOME=/data'] + (['--cpuset-cpus', '0'] if self.config['runner_role'] == 'test' else [])
 
     def sut_filesystems(self):
-        return ['--ipc', 'none']
+        # runsc otherwise inserts a writable /tmp even with a read-only root.
+        return ['--ipc', 'none', '--tmpfs', '/tmp:ro,noexec,nosuid,nodev,size=1m']
 
     def generator_options(self):
         return ['--cpuset-cpus', '1'] if self.config['runner_role'] == 'test' else []
