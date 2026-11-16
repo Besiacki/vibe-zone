@@ -124,7 +124,10 @@ def work(client, job, slot, state):
                 raise runner.InfrastructureError('Job did not produce a bounded completion document')
             document = json.loads(document_path.read_text())
             if not document.get('log'):
-                document['log'] = (directory / 'worker.log').read_text()[-60000:]
+                with (directory / 'worker.log').open('rb') as stream:
+                    stream.seek(max(0, stream.seek(0, 2) - 65536))
+                    document['log'] = stream.read(65536).decode('utf-8', errors='replace')
+            document['log'] = document['log'].encode()[-65536:].decode('utf-8', errors='ignore')
             for attempt in range(4):
                 try:
                     client.call('complete', {**identity, **document})
