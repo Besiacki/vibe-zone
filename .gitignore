@@ -1,0 +1,26 @@
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.sqlite*
+*.db*
+results/
+data/
+artifacts/
+node_modules/
+docs/codex.log
+.DS_Store
+
+docs/codex*.log
+
+# Local task briefs contain private operator connection details.
+docs/CODEX_RELEASE_TASK.md
+docs/CODEX_AUDIT_TASK.md
+docs/CODEX_HOMEPAGE_TASK.md
+
+# Operator briefs and the local delivery report.
+docs/CODEX_*.md
+docs/EXTRAS.md
