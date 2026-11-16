@@ -116,7 +116,7 @@ def fingerprint(config):
     digest = hashlib.sha256(json.dumps(config, sort_keys=True).encode())
     digest.update(K6_IMAGE.encode())
     digest.update(PROBE_IMAGE.encode())
-    digest.update(os.environ.get("BENCH_HOST_PROFILE", "local-unverified").encode())
+    digest.update(config.get("host_profile", os.environ.get("BENCH_HOST_PROFILE", "local-unverified")).encode())
     for name in ["runner.py", "http_client.py", "seed.py", "verify_loaded.py", "tests/api_check.py", "k6/load.js"]:
         digest.update((ROOT / name).read_bytes())
     return digest.hexdigest()
@@ -224,6 +224,7 @@ class Run:
         self.output.mkdir(parents=True, exist_ok=True)
         self.config, self.source, self.pull = config, source, pull
         self.lock_acquired = False
+        self.lock_name = "vibezone-benchmark-lock"
         self.extra_flags = []
         self.result = {"id": self.id, "started_at": utcnow(), "source": source, "status": "failed",
                        "profile": config, "profile_hash": fingerprint(config), "max_vus": 0, "levels": [],
@@ -241,6 +242,12 @@ class Run:
         args = [part for key, value in options.items() for part in ["--opt", f"{key}={value}"]]
         docker("volume", "create", "--label", "vibezone.run=" + self.id, "--driver", driver, *args, self.volume)
 
+    def resolve(self):
+        return resolve_source(self.source, self.pull)
+
+    def sut_options(self):
+        return []
+
     def create_sut(self):
         docker("create", "--pull=never", "--platform", "linux/amd64", "--name", self.sut,
                "--label", "vibezone.run=" + self.id, "--network", self.network, "--network-alias", "sut",
@@ -251,7 +258,7 @@ class Run:
                "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--log-driver", "none",
                "--dns", "127.0.0.1", "--stop-timeout", "5",
                "-e", "PORT=8080", "-e", "DATA_DIR=/data", "-e", "HOME=/tmp",
-               "--mount", f"type=volume,source={self.volume},target=/data,volume-nocopy", self.result["image_id"])
+               "--mount", f"type=volume,source={self.volume},target=/data,volume-nocopy", *self.sut_options(), self.result["image_id"])
 
     def healthy(self, start=False):
         started = time.monotonic()
@@ -275,9 +282,24 @@ else: raise SystemExit('health timeout')
             raise RuntimeError("Health took longer than 30 seconds")
         return round(elapsed, 3)
 
+    def check_host(self, host):
+        if self.config["name"] != "smoke" and (host["Architecture"] not in ("x86_64", "amd64") or host["NCPU"] < 6
+                or host["MemTotal"] < 8 * 1024**3 or self.result["host_profile"] == "local-unverified"):
+            raise InfrastructureError("Standard ranking requires native amd64, >=6 CPUs, >=8 GiB and an explicit BENCH_HOST_PROFILE")
+
+    def acquire_lock(self, probe_image):
+        docker("create", "--pull=never", "--platform", "linux/amd64", "--name", self.lock_name,
+               "--label", "vibezone.run=" + self.id, "--network", "none", "--read-only", "--entrypoint", "/bin/true", probe_image)
+        self.lock_acquired = True
+
+    def create_network(self):
+        subnet_args = ["--subnet", os.environ["BENCH_SUBNET"]] if os.environ.get("BENCH_SUBNET") else []
+        docker("network", "create", "--internal", "--opt", "com.docker.network.bridge.gateway_mode_ipv4=isolated",
+               *subnet_args, "--label", "vibezone.run=" + self.id, self.network)
+
     def execute(self):
         print(f"[{self.id}] Resolving {self.source}", file=sys.stderr, flush=True)
-        self.result.update(resolve_source(self.source, self.pull))
+        self.result.update(self.resolve())
         if self.result["image_bytes"] >= self.config["max_image_bytes"]:
             raise ValueError("Image must be smaller than 100,000,000 uncompressed bytes")
         self.result["image_gzip_bytes"] = compressed_size(self.result["image_id"])
@@ -290,17 +312,10 @@ else: raise SystemExit('health timeout')
                                 for name, image in [("probe", probe_image), ("k6", k6_image)]}
         host = json.loads(docker("info", "--format", "{{json .}}").stdout)
         self.result["host"] = {key: host.get(key) for key in ["Architecture", "NCPU", "MemTotal", "KernelVersion", "Driver"]}
-        self.result["host_profile"] = os.environ.get("BENCH_HOST_PROFILE", "local-unverified")
-        if self.config["name"] != "smoke" and (host["Architecture"] not in ("x86_64", "amd64") or host["NCPU"] < 6
-                or host["MemTotal"] < 8 * 1024**3 or self.result["host_profile"] == "local-unverified"):
-            raise InfrastructureError("Standard ranking requires native amd64, >=6 CPUs, >=8 GiB and an explicit BENCH_HOST_PROFILE")
-        # A daemon-wide exclusive name also prevents overlapping manual CLI runs.
-        docker("create", "--pull=never", "--platform", "linux/amd64", "--name", "vibezone-benchmark-lock", "--label", "vibezone.run=" + self.id,
-               "--network", "none", "--read-only", "--entrypoint", "/bin/true", probe_image)
-        self.lock_acquired = True
-        subnet_args = ["--subnet", os.environ["BENCH_SUBNET"]] if os.environ.get("BENCH_SUBNET") else []
-        docker("network", "create", "--internal", "--opt", "com.docker.network.bridge.gateway_mode_ipv4=isolated",
-               *subnet_args, "--label", "vibezone.run=" + self.id, self.network)
+        self.result["host_profile"] = self.config.get("host_profile", os.environ.get("BENCH_HOST_PROFILE", "local-unverified"))
+        self.check_host(host)
+        self.acquire_lock(probe_image)
+        self.create_network()
         self.create_data()
         docker("run", "--pull=never", "-d", "--platform", "linux/amd64", "--name", self.probe, "--network", self.network,
                "--label", "vibezone.run=" + self.id, "--user", "10001:10001", "--read-only", "--no-healthcheck",
@@ -444,7 +459,7 @@ else: raise SystemExit('health timeout')
         # Preserve the daemon-wide lock if any run resources could still exist.
         if self.lock_acquired and not self.result.get("cleanup_errors"):
             try:
-                docker("rm", "-fv", "vibezone-benchmark-lock", timeout=5)
+                docker("rm", "-fv", self.lock_name, timeout=5)
             except Exception as error:
                 self.result.setdefault("cleanup_errors", []).append(str(error)[-500:])
 

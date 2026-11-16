@@ -19,6 +19,8 @@ INTERVAL = 900
 
 
 def claim(path, now=None):
+    if os.environ.get("VZ_REMOTE_RUNNER") == "1":
+        return None
     now = now or time.time()
     with store.connect(path) as db:
         db.execute("BEGIN IMMEDIATE")

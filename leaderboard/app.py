@@ -13,7 +13,7 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.datastructures import LanguageAccept
 
 from bench.runner import IMAGE_ID, validate_source
-from leaderboard import store, extras, charts
+from leaderboard import store, extras, charts, remote, runner_api
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from leaderboard.i18n import ENGLISH, translate, public_error
@@ -23,6 +23,8 @@ def create_app(config=None):
     app = Flask(__name__)
     app.config.update(SECRET_KEY=os.environ.get("SECRET_KEY"), ADMIN_PASSWORD=os.environ.get("ADMIN_PASSWORD"),
                       DATABASE=os.environ.get("DATABASE", "/data/leaderboard.sqlite3"),
+                      REMOTE_RUNNER=os.environ.get("VZ_REMOTE_RUNNER", "0") == "1",
+                      RUNNER_TOKEN=os.environ.get("RUNNER_TOKEN", ""),
                       BENCH_SMOKE=os.environ.get("BENCH_SMOKE", "0") == "1",
                       ALLOWED_IMAGE_IDS=os.environ.get("BENCH_ALLOWED_IMAGE_IDS", "").split(),
                       BONUS_SPEC_FILE=os.environ.get("BONUS_SPEC_FILE", "/run/vibezone/bonus.json"),
@@ -35,6 +37,8 @@ def create_app(config=None):
     if not app.testing and (len(app.config["SECRET_KEY"]) < 32 or len(app.config["ADMIN_PASSWORD"]) < 20
             or any(str(app.config[key]).startswith("replace-with-") for key in ("SECRET_KEY", "ADMIN_PASSWORD"))):
         raise RuntimeError("Use a random SECRET_KEY (32+ chars) and ADMIN_PASSWORD (20+ chars), not example values")
+    if app.config["REMOTE_RUNNER"] and len(app.config["RUNNER_TOKEN"]) < 32:
+        raise RuntimeError("Remote runner requires a random RUNNER_TOKEN of at least 32 characters")
     store.initialize(app.config["DATABASE"])
 
     asset_hash = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(Path(app.static_folder).glob("*")) if p.is_file())).hexdigest()[:12]
@@ -50,9 +54,13 @@ def create_app(config=None):
     def csrf_context():
         if "csrf" not in session:
             session["csrf"] = secrets.token_urlsafe(32)
+        banner = app.config["BENCH_SMOKE"]
+        if app.config["REMOTE_RUNNER"]:
+            with store.connect(app.config["DATABASE"]) as db:
+                banner = remote.public_state(db)["test_banner"]
         return {"csrf_token": session["csrf"], "lang": g.lang, "t": translate,
                 "js_messages": {k: ENGLISH[k] for k in live_keys if k in ENGLISH} if g.lang == "en" else {},
-                "badge_labels": extras.LABELS, "asset_hash": asset_hash, "smoke": app.config["BENCH_SMOKE"],
+                "badge_labels": extras.LABELS, "asset_hash": asset_hash, "smoke": banner, "remote_enabled": app.config["REMOTE_RUNNER"],
                 "language_path": request.path if request.method == "GET" else "/"}
 
     @app.before_request
@@ -67,7 +75,10 @@ def create_app(config=None):
         g.lang = session.get("lang") or preferences.best_match(["en", "pl"], default="en")
 
     def localized_board():
-        board = store.board(app.config["DATABASE"])
+        selected = request.args.get("profile")
+        if selected and not remote.DIGEST.fullmatch(selected):
+            abort(400)
+        board = store.board(app.config["DATABASE"], selected)
         for row in board["ranking"] + board["rejected"]:
             original = row["result"]
             row["result"] = {key: original[key] for key in ("id", "status", "max_vus", "image_bytes", "cold_start_ms",
@@ -80,6 +91,9 @@ def create_app(config=None):
 
     @app.before_request
     def csrf_check():
+        if request.endpoint == "runner_api.operation":
+            request.max_content_length = 1024 * 1024
+            return
         if request.method == "POST":
             expected, supplied = session.get("csrf"), request.form.get("csrf_token", "")
             if not expected or not hmac.compare_digest(expected.encode(), supplied.encode()):
@@ -112,6 +126,8 @@ def create_app(config=None):
             session["admin_until"] = time.time() + 300
             return fn(*args, **kwargs)
         return decorated
+
+    runner_api.install(app, admin_required)
 
     @app.get("/health")
     def health():
@@ -180,7 +196,11 @@ def create_app(config=None):
             submissions = db.execute("SELECT s.*,p.nickname FROM submissions s JOIN participants p ON p.id=s.participant_id WHERE s.id=(SELECT MAX(id) FROM submissions WHERE participant_id=s.participant_id) ORDER BY p.id LIMIT 200").fetchall()
             batches = db.execute("SELECT * FROM batches ORDER BY id DESC LIMIT 10").fetchall()
             config = extras.settings(db)
-        return render_template("admin.html", submissions=submissions, batches=batches, extra_config=config, feature_labels=extras.FEATURE_LABELS)
+            runners = [dict(row) for row in db.execute('SELECT * FROM runners ORDER BY address')]
+            selection = dict(db.execute('SELECT * FROM runner_control WHERE id=1').fetchone())
+            jobs = db.execute('SELECT id,batch_id,submission_id,state,attempt,phase,lease_until FROM jobs ORDER BY id DESC LIMIT 100').fetchall()
+        return render_template("admin.html", submissions=submissions, batches=batches, extra_config=config,
+                               feature_labels=extras.FEATURE_LABELS, runners=runners, selection=selection, jobs=jobs)
 
     @app.post("/admin/invitations")
     @admin_required

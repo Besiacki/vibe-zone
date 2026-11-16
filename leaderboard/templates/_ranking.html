@@ -1,5 +1,6 @@
 {% from "_metrics.html" import metric with context %}
 <section class="scoreboard" aria-labelledby="ranking-title" data-live-board data-limit="{{ limit or 0 }}" data-compact="{{ '1' if compact or kiosk else '0' }}">
+  {% if board.profiles %}<nav class="profile-choice" aria-label="{{ t('Wybierz profil wyników') }}">{% for profile in board.profiles %}<a href="{{ request.path }}?lang={{ lang }}&amp;profile={{ profile.profile_hash }}" {% if profile.profile_hash == board.selected_profile %}aria-current="true"{% endif %}>{{ profile.name }} ({{ profile.profile_hash[:8] }})</a> {% endfor %}</nav>{% endif %}
   <div class="section-head"><h2 id="ranking-title">{{ t("Ranking") }}{% if limit %} · Top {{ limit }}{% endif %}</h2><span id="refresh-status" role="status">{{ t("Odświeżanie co 10 s") }}</span></div>
   <p class="scoring">{{ t("Wygrywa najwyższy poziom użytkowników z") }} <strong>{{ t("0% błędów") }}</strong> {{ t("i") }} <strong>p99 &lt; 500 ms</strong>{{ t(". Remis: mniejszy obraz, szybszy start, niższe p99.") }}</p>
   <dl class="board-summary">

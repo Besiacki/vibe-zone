@@ -25,7 +25,7 @@ function render(data) {
     place.className = 'place'; place.textContent = row.rank;
     const link = document.createElement('a'); link.href = '/team/' + row.participant_id;
     const strong = document.createElement('strong'); strong.textContent = row.nickname; link.append(strong);
-    const source = document.createElement('small'); source.textContent = row.source + (row.result.profile?.name === 'smoke' ? ' ' + t('· test lokalny') : '');
+    const source = document.createElement('small'); source.textContent = (row.result.profile?.name || '-') + ' · ' + row.source + (row.result.profile?.name === 'smoke' ? ' ' + t('· test lokalny') : '');
     name.append(place, link, source);
     const badges = document.createElement('div'); badges.className = 'badges';
     for (const key of row.badges || []) {const badge=document.createElement('span');badge.className='badge';badge.textContent=t(badgeLabels[key]);badges.append(badge);}
@@ -59,7 +59,7 @@ function render(data) {
 }
 async function refresh() {
   try {
-    const response = await fetch('/api/leaderboard?lang=' + document.documentElement.lang, {cache:'no-store', signal:AbortSignal.timeout(8000)});
+    const response = await fetch('/api/leaderboard?lang=' + document.documentElement.lang + (new URLSearchParams(location.search).has('profile') ? '&profile=' + encodeURIComponent(new URLSearchParams(location.search).get('profile')) : ''), {cache:'no-store', signal:AbortSignal.timeout(8000)});
     if (!response.ok) throw new Error('fetch');
     render(await response.json());
     document.querySelector('#refresh-status').textContent = t('Odświeżanie co 10 s');

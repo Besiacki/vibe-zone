@@ -7,7 +7,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from leaderboard import extras, charts
+from leaderboard import extras, charts, remote
 
 MAX_TEAMS = 200
 MAX_SUBMISSIONS = 5000
@@ -56,6 +56,7 @@ def initialize(path):
                 token_hash TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0
             );
         """)
+        remote.initialize(db)
         db.execute("BEGIN IMMEDIATE")
         if "approved_image" not in {row[1] for row in db.execute("PRAGMA table_info(submissions)")}:
             db.execute("ALTER TABLE submissions ADD COLUMN approved_image TEXT")
@@ -193,9 +194,19 @@ def team_history(path, participant_id):
             "trend_values": values, "trend_count": len(values)}
 
 
-def board(path):
+def board(path, profile_hash=None):
     with connect(path) as db:
-        published = db.execute("SELECT * FROM batches WHERE state='published' ORDER BY id DESC LIMIT 1").fetchone()
+        available_profiles = [dict(row) for row in db.execute("""SELECT rb.profile_hash,rb.config,MAX(b.id) AS batch_id
+            FROM remote_batches rb JOIN batches b ON b.id=rb.batch_id WHERE b.state='published'
+            GROUP BY rb.profile_hash ORDER BY batch_id DESC LIMIT 64""")]
+        for item in available_profiles:
+            config = json.loads(item.pop('config'))
+            item['name'] = config['name'] + ' / ' + config['runner_role']
+        if profile_hash:
+            published = db.execute("""SELECT b.* FROM batches b JOIN remote_batches rb ON rb.batch_id=b.id
+                WHERE b.state='published' AND rb.profile_hash=? ORDER BY b.id DESC LIMIT 1""", (profile_hash,)).fetchone()
+        else:
+            published = db.execute("SELECT * FROM batches WHERE state='published' ORDER BY id DESC LIMIT 1").fetchone()
         running = db.execute("SELECT id,started_at FROM batches WHERE state='running' ORDER BY id DESC LIMIT 1").fetchone()
         control = dict(db.execute("SELECT * FROM control WHERE id=1").fetchone())
         submissions = [dict(row) for row in db.execute("""SELECT s.id,s.participant_id,s.source,s.created_at,s.approved_image,p.nickname,
@@ -222,6 +233,9 @@ def board(path):
                              "source": row["source"], "nickname": row["nickname"],
                              **{key: row[key] for key in ("language", "language_verified", "prompt_log", "ai_tool")},
                              "result": result, "stats": measurement_stats(result)})
+    # A legacy or malformed batch must never rank incomparable measurements together.
+    selected_profile = profile_hash or next((r['result'].get('profile_hash') for r in rows), None)
+    rows = [r for r in rows if r['result'].get('profile_hash') == selected_profile]
     extras.attach(rows, config, green)
     qualified = sorted([row for row in rows if row["result"].get("status") == "passed"],
                        key=lambda row: (ranking_key(row), row["submission_id"]))
@@ -229,7 +243,7 @@ def board(path):
         row["rank"] = qualified[index - 1]["rank"] if index and ranking_key(row) == ranking_key(qualified[index - 1]) else index + 1
     rejected = [row for row in rows if row["result"].get("status") != "passed"]
     summary["best_vus"] = qualified[0]["result"].get("max_vus") if qualified else None
-    return {"extras": extra_state, "ranking": qualified, "rejected": rejected, "submissions": submissions, "summary": summary,
+    return {"profiles": available_profiles, "selected_profile": selected_profile, "extras": extra_state, "ranking": qualified, "rejected": rejected, "submissions": submissions, "summary": summary,
             "last_update": published["finished_at"] if published else None,
             "next_update": control["next_run"], "requested": bool(control["requested"]),
             "running": dict(running) if running else None}

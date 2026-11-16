@@ -1,9 +1,12 @@
 import unittest
 from leaderboard.charts import EXAMPLE, result_chart, load_chart
-from bench.tests.test_homepage import HomepageTests, publish, recorded_result
+from bench.tests import test_homepage as fixtures
+from bench.tests.test_homepage import publish, recorded_result
 
 
-class ExplanationTests(HomepageTests):
+class ExplanationTests(unittest.TestCase):
+    setUp = fixtures.HomepageTests.setUp
+
     def test_home_explains_api_and_score_without_javascript(self):
         publish(self.path, self.submission, recorded_result())
         for lang, text in [('pl', 'Przykład, nie wynik zespołu.'), ('en', 'Example, not a team result.')]:
