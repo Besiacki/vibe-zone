@@ -22,7 +22,7 @@ def make(host, name='full', overrides=None):
     official = host['role'] == 'official'
     result = profile(False)
     result.update(name=name, version=3, runtime='runsc', runner_role=host['role'],
-                  host_profile=host['fingerprint'], slots=slots, storage='bounded-ext4',
+                  host_profile=host['fingerprint'], slots=slots, storage='bounded-ext4', writable_paths=['/data'],
                   generator_gomaxprocs=1, min_host_cpus=2, min_host_memory_bytes=3 * GIB,
                   seed_posts=1000, seed_likes=3000, ramp_seconds=5, hold_seconds=20,
                   levels=[10, 25, 50, 100, 200], max_run_seconds=1800,

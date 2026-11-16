@@ -6,7 +6,7 @@ Przyspiesz mini social API: `GET /feed`, `POST /posts`, `POST /like`, oparte na 
 
 [Strona główna](https://devfest.atlasapx.pl/?lang=pl) · [Jak zacząć](https://devfest.atlasapx.pl/start?lang=pl) · [Ranking](https://devfest.atlasapx.pl/leaderboard?lang=pl) · [Zgłoś](https://devfest.atlasapx.pl/submit?lang=pl) · [Ekran strefy](https://devfest.atlasapx.pl/screen?lang=pl) · [English](README.md)
 
-Publiczne wdrożenie pokazuje obecnie **wyłącznie wyniki testowe** i uruchamia tylko sprawdzony starter organizatora. Buildy i pomiary konkursowe uczestników wymagają osobnych izolowanych runnerów.
+Wyniki na CPX22 są testowe. Buildy i pomiary wykonuje osobny runner gVisor; Mikrus udostępnia tylko tablicę. Oficjalny host i profil wybiera organizator w dniu wydarzenia. [Instrukcja runnera](deploy/RUNNER.md).
 
 ## Quickstart w pięciu komendach
 
@@ -24,9 +24,9 @@ Smoke sprawdza kontrakt API, losowe dane, współbieżne polubienia i trwałoś�
 
 ## Dołącz krok po kroku
 
-[Instrukcja uczestnika](docs/PARTICIPANT_GUIDE.pl.md) opisuje lokalny start, testy kontraktu, optymalizację, rozmiar obrazu, publikację na GHCR/Docker Hub i typowe błędy. Poproś organizatora o jednorazowe zaproszenie, a potem zgłoś publiczny obraz `linux/amd64`. Zapisz prywatny kod zespołu do aktualizacji. Każda wersja wymaga zatwierdzenia; repozytoria nie budują się automatycznie.
+[Instrukcja uczestnika](docs/PARTICIPANT_GUIDE.pl.md) opisuje lokalny start, testy kontraktu, optymalizację, rozmiar obrazu, publikację na GHCR/Docker Hub i typowe błędy. Poproś organizatora o jednorazowe zaproszenie, a potem zgłoś publiczny obraz `linux/amd64`. Zapisz prywatny kod zespołu do aktualizacji. Każda wersja wymaga zatwierdzenia digestu obrazu albo commita repozytorium; zdalny runner przygotowuje ją w ograniczonym sandboxie.
 
-Start batcha jest planowany co 15 minut: trzy pomiary każdego obrazu, publikacja całej serii naraz. Wygrywa najwyższa mediana zaliczonego poziomu VU, przy **0% błędów i p99 <500 ms**. Remis: mniejszy obraz, niższa mediana startu, niższe p99 przy tym poziomie; identyczne wyniki dzielą miejsce. Obowiązują [pełne zasady punktacji](docs/SCORING.md), także zastrzeżenie dotyczące mierzenia rozmiaru przez różne image store Dockera.
+Start batcha jest planowany co 15 minut: trzy pomiary każdego obrazu, publikacja całej serii naraz. Wygrywa najwyższa mediana zaliczonego poziomu VU, przy **0% błędów i p99 <500 ms**. Remis: mniejszy obraz, niższa mediana startu, niższe p99 przy tym poziomie; identyczne wyniki dzielą miejsce. Obowiązują [pełne zasady punktacji](docs/SCORING.md), w tym znormalizowany rozmiar obrazu i oddzielne profile wyników.
 
 ## Struktura repozytorium
 

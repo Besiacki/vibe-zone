@@ -2,6 +2,14 @@
 
 Flask + SQLite, formularz, `/screen`, odświeżanie co 10 s, panel `/admin` z Basic Auth i CSRF. Aktualne zasady: [SCORING.md](../docs/SCORING.md); ryzyka wdrożenia: [AUDIT.md](../docs/AUDIT.md).
 
+## Zdalny runner / Remote runner
+
+Wdrożenie konkursowe korzysta z [transportu pull i gVisora](../deploy/RUNNER.md). Web przyjmuje rejestrację/claim/heartbeat/complete z tokenem, bez dostępu do Dockera. Admin wybiera aktywny host, profil i obciążenie oraz zatwierdza digest obrazu lub commit repo. Każdy batch ma niezmienny profil; ranking pokazuje wyłącznie porównywalne wyniki. Baner domyślnie zostaje. Mikrus nie wykonuje obrazów uczestników.
+
+The competition deployment uses the [outbound gVisor runner](../deploy/RUNNER.md). The admin chooses host/load/profile and approves immutable images or repository commits. The web has no Docker authority. Leases, bounded retries and atomic publication protect results. Profiles are ranked separately and the test banner stays on by default.
+
+The following local scheduler instructions are for trusted smoke testing. / Poniższy lokalny scheduler służy testom smoke zaufanych obrazów.
+
 ## Lokalnie
 
 ```sh
@@ -43,7 +51,7 @@ Baza zachowuje ostatnie 64 zakończone batche; scheduler zachowuje do 1000 najno
 
 Interfejs, `/screen`, formularz i błędy wybierają PL/EN z `Accept-Language` (także pl-PL/en-US). Przełącznik zapisuje wybór w sesji; odświeżanie API zachowuje język strony. `BENCH_SMOKE=1` dodaje widoczny baner wyników testowych także przed pierwszym batchem. `BENCH_ALLOWED_IMAGE_IDS` ogranicza zatwierdzanie i wykonywanie do wskazanych pełnych ID; na wdrożeniu Mikrus pole jest obowiązkowe i zawiera tylko starter organizatora. Szczegóły: [deploy](../deploy/README.md).
 
-The board, screen, form and errors support PL/EN, selected from browser language or the remembered switch. Smoke mode always displays a test-results banner. The public Mikrus instance only permits the organizer's allowlisted starter; participant builds and competition runs need separate isolated runners. See the English [participant guide](../README.md) and [deployment guide](../deploy/README.md).
+The board, screen, form and errors support PL/EN, selected from browser language or the remembered switch. Smoke mode always displays a test-results banner. Production disables this local scheduler and uses the separate isolated pull runner. See the English [participant guide](../README.md) and [deployment guide](../deploy/README.md).
 
 ## Public pages / Strony publiczne
 

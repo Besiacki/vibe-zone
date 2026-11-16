@@ -6,7 +6,7 @@ Build a faster mini social API: `GET /feed`, `POST /posts`, `POST /like`, backed
 
 [Home](https://devfest.atlasapx.pl/?lang=en) · [Get started](https://devfest.atlasapx.pl/start?lang=en) · [Leaderboard](https://devfest.atlasapx.pl/leaderboard?lang=en) · [Submit](https://devfest.atlasapx.pl/submit?lang=en) · [Event screen](https://devfest.atlasapx.pl/screen?lang=en) · [Polski](README.pl.md)
 
-The public deployment currently shows **test results only** and runs only the reviewed organizer starter. Participant builds and competition measurements require separate isolated runners.
+CPX22 results are test-only. A separate gVisor runner builds and measures submissions; Mikrus only serves the board. The organizer selects the official host and profile on event day. [Runner runbook](deploy/RUNNER.md).
 
 ## Quickstart in five commands
 
@@ -24,9 +24,9 @@ Smoke checks the API contract, randomized data, concurrent likes and forced-rest
 
 ## Join the challenge
 
-Follow the [participant guide](docs/PARTICIPANT_GUIDE.md) for local startup, contract tests, optimization, image size, public GHCR/Docker Hub publishing and troubleshooting. Ask the organizer for a one-use invitation, then submit your public `linux/amd64` image. Save the private team code for updates. Each version needs organizer approval; repository submissions are not built automatically.
+Follow the [participant guide](docs/PARTICIPANT_GUIDE.md) for local startup, contract tests, optimization, image size, public GHCR/Docker Hub publishing and troubleshooting. Ask the organizer for a one-use invitation, then submit your public `linux/amd64` image. Save the private team code for updates. Each version needs organizer approval of an immutable image digest or repository commit; the remote runner prepares it in a bounded sandbox.
 
-Batches are scheduled every 15 minutes, with three measurements per image and atomic publication. The highest median qualifying VU level wins, with **0% errors and p99 <500 ms**. Ties: smaller image, lower median startup, lower p99 at that level; exact ties share a place. [Full scoring rules](docs/SCORING.md), including the Docker image-store size caveat, remain authoritative.
+Batches are scheduled every 15 minutes, with three measurements per image and atomic publication. The highest median qualifying VU level wins, with **0% errors and p99 <500 ms**. Ties: smaller image, lower median startup, lower p99 at that level; exact ties share a place. [Full scoring rules](docs/SCORING.md), including normalized image sizes and profile separation, remain authoritative.
 
 ## Repository
 
@@ -40,6 +40,6 @@ Batches are scheduled every 15 minutes, with three measurements per image and at
 
 [Contributing and local tests](CONTRIBUTING.md) · [Release evidence](docs/RELEASE.md) · [MIT license](LICENSE)
 
-No GitHub Actions or Google Cloud. Web has no Docker socket; the scheduler executes only approved local immutable images. See the audit before preparing competition infrastructure.
+No GitHub Actions or Google Cloud. Web has no Docker socket; isolated runners pull approved jobs over HTTPS. See the audit before preparing competition infrastructure.
 
 Separate badges cover image size below 50 MB, startup, p99 and organizer-verified unusual languages. Hidden correctness checks publish only pass counts. Optional extras: Survivor, announced Bonus, prompt logs, [audience vote](https://devfest.atlasapx.pl/vote?lang=en), and [AI Pilot](https://devfest.atlasapx.pl/start?lang=en#ai-pilot) for people new to programming. These never change U. [Category rules](docs/SCORING.md#extra-categories--dodatkowe-kategorie).

@@ -2,7 +2,7 @@
 
 [PL](PARTICIPANT_GUIDE.pl.md) · [EN](PARTICIPANT_GUIDE.md) · [Web](https://devfest.atlasapx.pl/start?lang=pl) · [API](API.md) · [Scoring / Punktacja](SCORING.md)
 
-Publiczna tablica uruchamia obecnie tylko sprawdzony starter organizatora w trybie smoke. Pomiary konkursowe uczestników wymagają osobnej izolowanej infrastruktury.
+Wyniki na CPX22 są testowe. Buildy i pomiary wykonuje osobny runner gVisor; Mikrus udostępnia tylko tablicę. Oficjalny host i profil wybiera organizator w dniu wydarzenia.
 
 ## 1. Przygotuj narzędzia i fork
 
@@ -52,7 +52,7 @@ Sprawdź plany zapytań, liczbę odczytów SQLite, koszt połączeń i blokad or
 
 ## 6. Sprawdź rozmiar i platformę
 
-Obraz musi mieć mniej niż 100 000 000 B bez kompresji; cel to mniej niż 50 MB, bez dodatkowej premii. Inspect pokazuje pole używane obecnie przez runner. Containerd może liczyć także rozpakowany storage: nie porównuj wartości między różnymi image store. Rozmiar archiwum gzip nie jest kryterium dopuszczenia.
+Obraz musi mieć mniej niż 100 000 000 B bez kompresji; cel to mniej niż 50 MB. Zdalny runner sumuje nieskompresowane warstwy TAR i sprawdza ich hashe. Pole Size w lokalnym inspect jest orientacyjne i zależy od image store. Odznaka za obraz poniżej 50 MB nie dodaje U.
 
 ```sh
 docker image inspect vibezone-starter:local --format '{{.Os}}/{{.Architecture}} {{.Size}} bytes'
@@ -76,7 +76,7 @@ docker push docker.io/YOUR_ACCOUNT/vibe-zone:v1
 
 ## 8. Zgłoś i zachowaj kod zespołu
 
-Poproś organizatora o jednorazowe zaproszenie. W formularzu podaj nazwę zespołu, zaproszenie i publiczny obraz. Kod zespołu zobaczysz tylko raz: zapisz go prywatnie. Przy aktualizacji użyj tej samej nazwy i kodu, bez nowego zaproszenia. Każda wersja wymaga zatwierdzenia konkretnego ID obrazu; zmiana taga nie wystarcza. Zgłoszenie repozytorium wymaga osobnego builda organizatora. Batch startuje co 15 minut i publikuje wynik po wszystkich trzech pomiarach; może trwać dłużej niż kwadrans.
+Poproś organizatora o jednorazowe zaproszenie. W formularzu podaj nazwę zespołu, zaproszenie i publiczny obraz. Kod zespołu zobaczysz tylko raz: zapisz go prywatnie. Przy aktualizacji użyj tej samej nazwy i kodu, bez nowego zaproszenia. Każda wersja wymaga zatwierdzenia digestu obrazu albo pełnego commita repozytorium. Runner pobiera lub buduje tylko tę wersję w izolacji. Zmiana taga nie aktualizuje zatwierdzonego zgłoszenia. Batch startuje co 15 minut i publikuje wynik po wszystkich trzech pomiarach; może trwać dłużej niż kwadrans.
 
 ## 9. Sprawdź typowe błędy
 

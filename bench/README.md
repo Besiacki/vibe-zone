@@ -1,3 +1,9 @@
+# Runner CLI and isolated pull agent
+
+`bench/runner.py` remains the local CLI for trusted images. `bench/pull_agent.py` is the host-only outbound agent; `remote_job.py` executes approved jobs through gVisor and bounded storage. Do not run the agent on the web host. Installation, profiles, image normalization and event-day calibration: [RUNNER.md (PL/EN)](../deploy/RUNNER.md).
+
+CLI jest do lokalnych testów zaufanych obrazów. Agent pull działa wyłącznie na osobnym hoście. Nie zmienia reguł lokalnego smoke; wyników różnych profili nie porównujemy.
+
 # Testy i benchmark
 
 Aktualne zasady uczestnika i dokładny algorytm: [SCORING.md](../docs/SCORING.md). Granice bezpieczeństwa i warunki uruchomienia publicznego: [AUDIT.md](../docs/AUDIT.md).

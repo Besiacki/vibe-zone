@@ -1,4 +1,6 @@
-# Vibe Zone scoring - version 2 / Punktacja - wersja 2
+# Vibe Zone scoring - runner profiles v3 / Profile runnera v3
+
+Profiles `full` and `parallel` freeze host versions, CPU/RAM, VU levels and timing per batch. The ranking selects one profile hash. CPX22 is test-only; the official `full` profile preserves the standard load below. / Profile `full` i `parallel` zapisują wersje hosta, CPU/RAM, poziomy VU i czas w każdym batchu. Ranking wybiera jeden hash profilu. CPX22 służy testom; oficjalny `full` zachowuje standardowe obciążenie opisane poniżej. [Runbook](../deploy/RUNNER.md).
 
 ## English
 
@@ -8,14 +10,14 @@ The endpoint contract remains in [API.md](API.md). The reduced smoke resource li
 
 1. Ask the organizer for a one-use invitation. Your first submission returns a separate private team update code.
 2. Submit a public Docker Hub/GHCR image name or GitHub/GitLab repository URL. The form does not download or build anything.
-3. On isolated infrastructure, the organizer prepares the image and reviews the source, then approves the **full local `sha256:...` ID** for that submission. Every new version needs approval. Updating a registry tag does not change an approved image.
+3. The organizer reviews the source and approves an immutable **image digest or repository commit**. The isolated runner imports or builds that version. Every new version needs approval. Updating a registry tag does not change an approved image.
 4. A batch snapshots the latest visible submission per team. Unapproved entries wait without invoking Docker. Starts are scheduled every 15 minutes, but completion can take longer. Publication is atomic after the full batch.
 
-Images must target **linux/amd64** and be **strictly smaller than 100,000,000 uncompressed bytes** (`docker image inspect .Size`). The 50 MB target has no extra bonus: fewer bytes always win a size tie. Gzipped archive size is informational.
+Images must target **linux/amd64** and be **strictly smaller than 100,000,000 uncompressed TAR layer bytes**. The 50 MB target has no extra bonus: fewer bytes always win a size tie. Gzipped archive size is informational.
 
-**Release compatibility gate:** the current implementation reads `.Size` directly. With Docker 29 containerd, this can include content plus unpacked storage, so it is not a portable uncompressed-byte measure. The same starter reports 41,156,948 B on the classic local store and 89,418,095 B on the VPS. The public board is diagnostic only. Before competition, verify a consistent legacy store with the specified uncompressed semantics, or audit a normalized measurement and rerun all images. [Engine API definition](https://github.com/moby/moby/blob/master/api/types/image/image_inspect.go).
+**Remote runner v3:** sum the byte lengths of uncompressed layer TAR streams, including TAR headers/padding, after verifying the diff hashes. Config JSON and compressed archive bytes do not count. This is independent of Docker's classic/containerd store. Legacy local smoke uses inspect `.Size`; its values must not be compared to v3. Rerun all teams when changing profiles.
 
-The standard container receives **1 vCPU, 2 GiB RAM, no extra swap, 512 PIDs and 4096 file descriptors**. It runs as UID/GID 10001:10001 with a read-only root filesystem, writable `/tmp` (64 MiB, noexec) and fresh `/data` on a bounded disk filesystem (≤1 GiB). No other declared volumes, root, internet or external services. The image's healthcheck is disabled; an independent probe checks `/health`.
+The standard container receives **1 vCPU, 2 GiB RAM, no extra swap, 512 PIDs and 4096 file descriptors**. It runs as UID/GID 10001:10001 with a read-only root filesystem, writes only to fresh `/data` (`TMPDIR=/data`, no shared-memory IPC) on a bounded disk filesystem (≤1 GiB). No other declared volumes, root, internet or external services. The image's healthcheck is disabled; an independent probe checks `/health`.
 
 ### One measurement
 
@@ -80,14 +82,14 @@ Zasady po audycie z 16.11.2026. Kontrakt endpointów pozostaje w [API.md](API.md
 
 1. Organizator wydaje jednorazowe zaproszenie do utworzenia zespołu. Pierwsze zgłoszenie zwraca osobny kod do aktualizacji tego zespołu.
 2. Podajesz publiczną nazwę obrazu Docker Hub/GHCR albo adres repozytorium GitHub/GitLab. Formularz niczego nie pobiera i nie buduje.
-3. Organizator przygotowuje obraz poza hostem pomiarowym, sprawdza źródło i zatwierdza **pełne lokalne ID `sha256:...`** konkretnego zgłoszenia. Każda nowa wersja wymaga ponownego zatwierdzenia; zmiana taga w registry sama nie zmienia zatwierdzonego obrazu.
+3. Organizator sprawdza źródło i zatwierdza **digest obrazu lub pełny commit repozytorium**. Izolowany runner pobiera lub buduje tę wersję. Każda nowa wersja wymaga ponownego zatwierdzenia; zmiana taga w registry sama nie zmienia zatwierdzonego obrazu.
 4. Batch bierze najnowsze nieukryte zgłoszenie każdego zespołu. Niezatwierdzone zgłoszenie czeka na organizatora i nie uruchamia Dockera.
 
-Obraz musi mieć platformę `linux/amd64` i rozmiar **ściśle mniejszy niż 100 000 000 B bez kompresji** (`docker image inspect .Size`). Cel 50 MB nie daje osobnej premii: przy remisie zawsze wygrywa mniejsza liczba bajtów. Rozmiar `docker save | gzip` jest informacyjny i nie wpływa na wynik.
+Obraz musi mieć platformę `linux/amd64` i rozmiar **ściśle mniejszy niż 100 000 000 B nieskompresowanych warstw TAR**. Cel 50 MB nie daje osobnej premii: przy remisie zawsze wygrywa mniejsza liczba bajtów. Rozmiar `docker save | gzip` jest informacyjny i nie wpływa na wynik.
 
-**Warunek zgodności wydania:** kod odczytuje `.Size` bez normalizacji. Docker 29 z containerd może wliczać zawartość obrazu i rozpakowany storage; nie jest to przenośna miara nieskompresowanych bajtów. Ten sam starter raportuje 41 156 948 B lokalnie i 89 418 095 B na VPS. Tablica publiczna jest wyłącznie diagnostyczna. Przed konkursem należy zweryfikować jednolity legacy image store z wymaganą semantyką albo zaimplementować i przejrzeć normalizację oraz przeliczyć wszystkie obrazy. Nie zmieniamy tutaj kryteriów punktacji.
+**Zdalny runner v3:** sumuje długości nieskompresowanych strumieni TAR warstw, łącznie z nagłówkami i paddingiem, po sprawdzeniu ich hashy. JSON konfiguracji i rozmiar kompresji nie wchodzą do tej sumy. Wynik nie zależy od klasycznego/containerd image store. Lokalne smoke nadal używa inspect `.Size`; nie porównuj go z v3. Po zmianie profilu zmierz wszystkie zespoły ponownie.
 
-Kontener otrzymuje 1 vCPU, 2 GiB RAM bez dodatkowego swapu, limit 512 procesów i 4096 otwartych deskryptorów. Działa jako UID/GID `10001:10001`, z systemem plików tylko do odczytu, zapisywalnym `/tmp` 64 MiB (`noexec`) i osobnym `/data` o pojemności maksymalnie 1 GiB. Nie może deklarować innych `VOLUME`, wymagać roota, internetu ani usług zewnętrznych. Własny Docker HEALTHCHECK jest wyłączony; gotowość sprawdza niezależny klient przez `/health`.
+Kontener otrzymuje 1 vCPU, 2 GiB RAM bez dodatkowego swapu, limit 512 procesów i 4096 otwartych deskryptorów. Działa jako UID/GID `10001:10001`, z systemem plików tylko do odczytu, zapisem wyłącznie w osobnym `/data` (`TMPDIR=/data`, bez IPC shared memory) o pojemności maksymalnie 1 GiB. Nie może deklarować innych `VOLUME`, wymagać roota, internetu ani usług zewnętrznych. Własny Docker HEALTHCHECK jest wyłączony; gotowość sprawdza niezależny klient przez `/health`.
 
 ## Jeden pomiar
 

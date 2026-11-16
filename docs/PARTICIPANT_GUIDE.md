@@ -2,7 +2,7 @@
 
 [PL](PARTICIPANT_GUIDE.pl.md) · [EN](PARTICIPANT_GUIDE.md) · [Web](https://devfest.atlasapx.pl/start?lang=en) · [API](API.md) · [Scoring / Punktacja](SCORING.md)
 
-The public board currently runs only the reviewed organizer starter in smoke mode. Participant competition runs need separate isolated infrastructure.
+CPX22 results are test-only. A separate gVisor runner builds and measures submissions; Mikrus only serves the board. The organizer selects the official host and profile on event day.
 
 ## 1. Prepare your tools and fork
 
@@ -52,7 +52,7 @@ Inspect query plans, SQLite read counts, connection and locking costs, and image
 
 ## 6. Check size and platform
 
-The image must be under 100,000,000 uncompressed bytes; the target is under 50 MB, with no extra bonus. Inspect shows the field currently used by the runner. Containerd may also count unpacked storage: do not compare different image stores. The gzipped archive size is not the admission criterion.
+The image must be below 100,000,000 uncompressed bytes; the target is below 50 MB. The remote runner sums uncompressed TAR layers and verifies their hashes. Local inspect Size is an estimate that depends on the image store. The badge for images below 50 MB does not add U.
 
 ```sh
 docker image inspect vibezone-starter:local --format '{{.Os}}/{{.Architecture}} {{.Size}} bytes'
@@ -76,7 +76,7 @@ docker push docker.io/YOUR_ACCOUNT/vibe-zone:v1
 
 ## 8. Submit and save your team code
 
-Ask the organizer for a one-use invitation. Enter your team name, invitation and public image in the form. Your team code is shown only once: save it privately. For updates, use the same name and code without a new invitation. Every version needs approval of its specific image ID; changing a tag is not enough. A repository submission needs a separate organizer build. Batches start every 15 minutes and publish after all three runs; they may take longer than a quarter hour.
+Ask the organizer for a one-use invitation. Enter your team name, invitation and public image in the form. Your team code is shown only once: save it privately. For updates, use the same name and code without a new invitation. Every version needs approval of an image digest or a full repository commit. The runner only imports or builds that version in isolation. Changing a tag does not update an approved submission. Batches start every 15 minutes and publish after all three runs; they may take longer than a quarter hour.
 
 ## 9. Check common mistakes
 

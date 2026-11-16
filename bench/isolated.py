@@ -58,7 +58,10 @@ class IsolatedRun(runner.Run):
         volume('create', self.volume)
 
     def sut_options(self):
-        return ['--runtime', 'runsc'] + (['--cpuset-cpus', '0'] if self.config['runner_role'] == 'test' else [])
+        return ['--runtime', 'runsc', '-e', 'TMPDIR=/data', '-e', 'HOME=/data'] + (['--cpuset-cpus', '0'] if self.config['runner_role'] == 'test' else [])
+
+    def sut_filesystems(self):
+        return ['--ipc', 'none']
 
     def generator_options(self):
         return ['--cpuset-cpus', '1'] if self.config['runner_role'] == 'test' else []

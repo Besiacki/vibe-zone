@@ -248,6 +248,9 @@ class Run:
     def sut_options(self):
         return []
 
+    def sut_filesystems(self):
+        return ["--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777", "--shm-size", "16m"]
+
     def generator_options(self):
         return []
 
@@ -256,7 +259,7 @@ class Run:
                "--label", "vibezone.run=" + self.id, "--network", self.network, "--network-alias", "sut",
                "--cpus", self.config["cpu"], "--memory", self.config["memory_bytes"], "--memory-swap", self.config["memory_bytes"], "--pids-limit", "512",
                "--user", "10001:10001", "--read-only", "--no-healthcheck",
-               "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777", "--shm-size", "16m",
+               *self.sut_filesystems(),
                "--ulimit", "nofile=4096:4096", "--ulimit", "fsize=1073741824:1073741824", "--ulimit", "core=0",
                "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--log-driver", "none",
                "--dns", "127.0.0.1", "--stop-timeout", "5",

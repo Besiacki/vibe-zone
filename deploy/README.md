@@ -1,6 +1,8 @@
 # Mikrus deployment · devfest.atlasapx.pl
 
-This deployment is a **test board** behind Cloudflare. The optional local scheduler runs **only the reviewed organizer starter** in reduced smoke mode. Participant code requires a separate disposable builder and isolated competition runner; this repository does not yet implement remote job transport or automatic repository builds. See [audit](../docs/AUDIT.md), [scoring](../docs/SCORING.md), and [release evidence](../docs/RELEASE.md).
+Production uses web/Caddy on Mikrus and a separate outbound gVisor runner. Keep `VZ_REMOTE_RUNNER=1`, configure the shared private token and stop the local scheduler. CPX22 results remain test-only. [Runner installation and event-day runbook (PL/EN)](RUNNER.md). The local smoke deployment below remains available only for reviewed organizer images.
+
+Produkcja: web/Caddy na Mikrusie, osobny runner gVisor w modelu pull. Ustaw `VZ_REMOTE_RUNNER=1`, prywatny token i wyłącz lokalny scheduler. Wyniki CPX22 są testowe. Dalsze instrukcje lokalnego smoke dotyczą wyłącznie sprawdzonych obrazów organizatora.
 
 ## Inspect and prepare
 
@@ -57,7 +59,7 @@ Each permanent service has a 192 MiB RAM/no-swap cap, 1 CPU, 128 PIDs, read-only
 
 The scheduler has the host Docker socket and therefore administrative Docker authority; `network_mode: none` does not remove that authority. Only trusted local artifacts are permitted. Web is on an internal network; Caddy also has an edge network. The benchmark creates its own internal isolated network without external DNS or host mounts. Do not enable privileged mode or disable seccomp.
 
-**Competition gate:** native amd64 ≥6 CPU / ≥8 GiB is only a minimum; validate generator headroom at 30k VU. Use an isolated disposable environment for hostile code, separate bounded import/build storage, a verified disk quota ≤1 GiB with fresh-volume/ENOSPC/deletion/crash tests, and a frozen `BENCH_HOST_PROFILE`. Never bypass these checks or replace competition disk storage with tmpfs. Freeze rules and rerun all participants after changes. Image-size admission currently uses `docker image inspect .Size`; containerd includes content plus unpacked storage, unlike classic overlay2. For the competition, use and verify a consistent legacy store reporting uncompressed layer bytes, or implement and audit a normalized measurement before accepting results. Do not silently compare these size values across stores. No Google Cloud or Actions deployment is configured.
+**Competition gate:** native amd64 ≥6 CPU / ≥8 GiB is only a minimum; validate generator headroom at 30k VU. Use an isolated disposable environment for hostile code, separate bounded import/build storage, a verified disk quota ≤1 GiB with fresh-volume/ENOSPC/deletion/crash tests, and a frozen `BENCH_HOST_PROFILE`. Never bypass these checks or replace competition disk storage with tmpfs. Freeze rules and rerun all participants after changes. The remote runner normalizes uncompressed TAR layer bytes and verifies hashes before admission. The legacy local CLI still uses Docker inspect Size; do not compare those profiles. No Google Cloud or Actions deployment is configured.
 
 ## Backup and update
 
