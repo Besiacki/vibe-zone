@@ -75,3 +75,6 @@ GUIDE = [{'title': 'Przygotuj narzędzia i fork',
           'musi zwrócić poprawny JSON w 30 sekund. Konflikt nazwy lokalnego kontenera: zatrzymaj i usuń '
           'tylko własny vz-starter; wolumen z danymi pozostaje.',
   'code': 'docker stop vz-starter\ndocker rm vz-starter'}]
+
+
+GLOSSARY = [('U', 'Wynik zespołu: mediana najwyższych zaliczonych poziomów użytkowników z trzech prób.'), ('VU', 'Wirtualny użytkownik. Program wykonuje żądania podobnie jak jedna osoba korzystająca z aplikacji.'), ('p99', 'Czas, w którym mieści się 99% odpowiedzi. Pozostały 1% może trwać dłużej.'), ('cold start', 'Czas od uruchomienia kontenera do gotowości aplikacji do obsługi żądań.'), ('smoke', 'Krótki test działania przed pełnym pomiarem. Nie daje wyniku konkursowego.'), ('Docker', 'Obraz Docker to paczka z aplikacją i jej zależnościami. Kontener to uruchomiona kopia tej paczki.'), ('linux/amd64', 'System i rodzaj procesora, dla których budujesz obraz. Takich używa runner, także gdy pracujesz na Macu.'), ('SQLite', 'Baza danych zapisana w pliku. W tym zadaniu przechowuje posty i polubienia w katalogu /data.'), ('Trwałość zapisu', 'Potwierdzony post lub like musi pozostać w bazie po awaryjnym restarcie aplikacji.')]

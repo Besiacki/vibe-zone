@@ -7,7 +7,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from leaderboard import extras
+from leaderboard import extras, charts
 
 MAX_TEAMS = 200
 MAX_SUBMISSIONS = 5000
@@ -176,7 +176,7 @@ def team_history(path, participant_id):
             public["profile_name"] = (result.get("profile") or {}).get("name")
             history.append({"batch_id": row["id"], "published_at": row["finished_at"],
                             "submission_id": row["submission_id"], "source": row["source"],
-                            "result": public, "stats": measurement_stats(result)})
+                            "result": public, "chart": charts.result_chart(result), "stats": measurement_stats(result)})
     # Plot only the uninterrupted suffix of successful, comparable measurements.
     trend = []
     for row in history:

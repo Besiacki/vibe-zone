@@ -76,6 +76,12 @@ def main():
                             expect(page.locator('.test-banner')).to_be_visible()
                             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), (route, lang, size, 'overflow')
                             if name == 'home':
+                                expect(page.locator('.flow-diagram')).to_be_visible()
+                                expect(page.locator('.load-chart')).to_be_visible()
+                                expect(page.locator('.api-example-grid article')).to_have_count(3)
+                                page.locator('.glossary summary').click()
+                                expect(page.locator('.glossary dt')).to_have_count(9)
+                                assert page.locator('#last-update').inner_text() not in ['jeszcze brak', 'not yet']
                                 assert page.locator('#ranking-rows .place').count() <= 5
                                 page.locator('.faq summary').first.click()
                                 expect(page.locator('.faq details').first).to_have_attribute('open', '')
@@ -109,6 +115,18 @@ def main():
                         page.goto(args.url + '/start')
                         expect(page.locator('html')).to_have_attribute('lang', other)
                         context.close()
+                # The explanations and timestamps also work without JavaScript.
+                context = browser.new_context(java_script_enabled=False, viewport={'width':390, 'height':844})
+                page = context.new_page()
+                for lang in ['pl', 'en']:
+                    page.goto(args.url + '/?lang=' + lang)
+                    expect(page.locator('.flow-diagram')).to_be_visible()
+                    expect(page.locator('.load-chart')).to_be_visible()
+                    page.locator('.glossary summary').click()
+                    expect(page.locator('.glossary dl')).to_be_visible()
+                    assert page.locator('#last-update').inner_text() not in ['jeszcze brak', 'not yet']
+                    page.screenshot(path=str(output / f'home-{lang}-nojs.png'), full_page=True)
+                context.close()
                 # The event screen must fit at its target viewport without a horizontal table scroll.
                 page = browser.new_page(viewport={'width':1920, 'height':1080})
                 page.goto(args.url + '/screen?lang=pl')

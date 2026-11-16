@@ -13,7 +13,9 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.datastructures import LanguageAccept
 
 from bench.runner import IMAGE_ID, validate_source
-from leaderboard import store, extras
+from leaderboard import store, extras, charts
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from leaderboard.i18n import ENGLISH, translate, public_error
 
 
@@ -39,6 +41,10 @@ def create_app(config=None):
     javascript = Path(app.static_folder, "board.js").read_text()
     live_keys = set(re.findall(r"t\(['\"]([^'\"]+)['\"]\)", javascript)) | set(extras.LABELS.values())
     devices = URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="audience-device")
+
+    @app.template_filter("warsaw_time")
+    def warsaw_time(value):
+        return datetime.fromtimestamp(value, ZoneInfo("Europe/Warsaw")).strftime("%d.%m.%Y %H:%M:%S") if value else translate("jeszcze brak")
 
     @app.context_processor
     def csrf_context():
@@ -115,7 +121,8 @@ def create_app(config=None):
 
     @app.get("/")
     def index():
-        return render_template("home.html", board=localized_board(), compact=True, limit=5)
+        from leaderboard.content import GLOSSARY
+        return render_template("home.html", board=localized_board(), compact=True, limit=5, chart=charts.EXAMPLE, glossary=GLOSSARY)
 
     @app.get("/leaderboard")
     def leaderboard():
