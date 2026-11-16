@@ -117,7 +117,7 @@ def fingerprint(config):
     digest.update(K6_IMAGE.encode())
     digest.update(PROBE_IMAGE.encode())
     digest.update(config.get("host_profile", os.environ.get("BENCH_HOST_PROFILE", "local-unverified")).encode())
-    for name in ["runner.py", "http_client.py", "seed.py", "verify_loaded.py", "tests/api_check.py", "k6/load.js"]:
+    for name in ["runner.py", "http_client.py", "seed.py", "verify_loaded.py", "tests/api_check.py", "k6/load.js", "profiles.py", "isolated.py", "artifacts.py", "remote_job.py"]:
         digest.update((ROOT / name).read_bytes())
     return digest.hexdigest()
 
@@ -246,6 +246,9 @@ class Run:
         return resolve_source(self.source, self.pull)
 
     def sut_options(self):
+        return []
+
+    def generator_options(self):
         return []
 
     def create_sut(self):
@@ -381,7 +384,7 @@ else: raise SystemExit('health timeout')
                    "--memory-swap", self.config["generator_memory"], "--pids-limit", "128", "--log-driver", "none",
                    "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=16m,mode=1777", "--ulimit", "core=0",
                    "--ulimit", "fsize=1048576:1048576", "--dns", "127.0.0.1",
-                   "--cap-drop", "ALL", "--security-opt", "no-new-privileges", *env_args,
+                   "--cap-drop", "ALL", "--security-opt", "no-new-privileges", *self.generator_options(), *env_args,
                    "--entrypoint", "/bin/sh", k6_image, "-c",
                    "while [ ! -f /tmp/ready ]; do sleep .1; done; k6 run --quiet /tmp/load.js >/tmp/k6.log 2>&1; echo $? >/tmp/exit; sleep infinity")
             docker("start", self.k6)

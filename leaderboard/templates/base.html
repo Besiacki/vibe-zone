@@ -19,7 +19,7 @@
     </nav>{% endif %}
     <nav class="languages" aria-label="Language / Język"><a href="{{ language_path }}?lang=pl" lang="pl" hreflang="pl" {% if lang == 'pl' %}aria-current="true"{% endif %}>PL</a><a href="{{ language_path }}?lang=en" lang="en" hreflang="en" {% if lang == 'en' %}aria-current="true"{% endif %}>EN</a></nav>
   </header>
-  {% if smoke %}<aside class="wrap test-banner"><strong>{{ t('Wyniki testowe - poza konkursem') }}</strong><p>{{ t('Wyniki próbne. Oficjalny host i profil wybiera organizator w dniu wydarzenia.') if remote_enabled else t('Smoke: 2 / 5 / 10 użytkowników, 256 MiB RAM. Pełny konkurs wymaga osobnego runnera.') }}</p></aside>{% endif %}
+  {% if smoke or remote_enabled %}<aside class="wrap test-banner" {% if not smoke %}hidden{% endif %}><strong>{{ t('Wyniki testowe - poza konkursem') }}</strong><p>{{ t('Wyniki próbne. Oficjalny host i profil wybiera organizator w dniu wydarzenia.') if remote_enabled else t('Smoke: 2 / 5 / 10 użytkowników, 256 MiB RAM. Pełny konkurs wymaga osobnego runnera.') }}</p></aside>{% endif %}
   {% if request.endpoint in ['index', 'leaderboard', 'screen', 'team'] %}<div id="translations" data-messages='{{ js_messages | tojson }}' data-badges='{{ badge_labels | tojson }}' hidden></div>{% endif %}
   <main id="main" tabindex="-1">{% block content %}{% endblock %}</main>
   <footer class="wrap">Vibe Zone / GDG Warsaw <span>{{ t("Konkurs API") }}</span></footer>

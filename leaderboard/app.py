@@ -79,6 +79,9 @@ def create_app(config=None):
         if selected and not remote.DIGEST.fullmatch(selected):
             abort(400)
         board = store.board(app.config["DATABASE"], selected)
+        if app.config["REMOTE_RUNNER"]:
+            with store.connect(app.config["DATABASE"]) as db:
+                board["runner"] = remote.public_state(db)
         for row in board["ranking"] + board["rejected"]:
             original = row["result"]
             row["result"] = {key: original[key] for key in ("id", "status", "max_vus", "image_bytes", "cold_start_ms",

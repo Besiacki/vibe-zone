@@ -1,4 +1,28 @@
-# Audyt bezpieczeństwa i scoringu - 16.11.2026
+# Aktualizacja: izolowany runner pull
+
+Stan po integracji z 16.11.2026. Poprzedni audyt poniżej jest zapisem historycznym lokalnego schedulera. Bieżąca architektura oddziela publiczny web od wykonania kodu. Mikrus nie uruchamia zgłoszeń; dedykowany host odpytuje uwierzytelnione API. CPX22 nadal daje tylko wyniki próbne. Oficjalny host i docelowe obciążenie wymagają kalibracji w dniu wydarzenia.
+
+| Granica | Zabezpieczenie i dowód |
+| --- | --- |
+| Web / host wykonawczy | Wyłącznie HTTPS pull z tokenem, bez przekazywania cookie admina. Web nie kontaktuje się z adresem runnera i nie ma socketu Docker. API ma limit ciała, limit żądań i stałoczasową kontrolę tokenu. Formularze admina nadal wymagają Basic Auth i CSRF. |
+| Zadania | Transakcyjne przydzielenie, 90-sekundowa dzierżawa, heartbeat, limit prób, deadline i odrzucanie starego tokenu. Idempotentne completion. Błąd infrastruktury albo cleanup zatrzymuje publikację całego batcha. Testy obejmują równoległe claim, timeout, replay i różny profil wyniku. |
+| Kod uczestnika | gVisor runsc, non-root, cap-drop ALL, no-new-privileges, rootfs read-only, ograniczone tmpfs, CPU/RAM/PID oraz świeży ext4 do 1 GiB. Osobna sieć internal/isolated bez adresu IPv6 hosta. Brak internetowego DNS, publicznych portów i socketu Docker. Nie ma fallbacku do runc. |
+| Import i build | Skopeo/rootless BuildKit wewnątrz runsc, oddzielny dysk 1 GiB, limity czasu/CPU/RAM/PID. Egress wyłącznie przez proxy HTTPS z allowlistą i odrzucaniem prywatnych IP. Nie są przekazywane sekrety ani katalog domowy operatora. Budowy nie nakładają się na falę pomiarów. |
+| Archiwum obrazu | Bez wypakowywania ścieżek do hosta; odrzucenie symlinków w wejściu/wyjściu, liczba/rozmiar plików, hash każdej rozpakowanej warstwy, platforma, VOLUME i limit 100 MB. Kanoniczny eksport usuwa obce tagi. Rozmiar warstw jest normalizowany przed importem, także dla containerd. |
+| Dane prywatne | Token tylko w plikach env 600 i pamięci agenta. Procesy zadań mają oczyszczone środowisko. Prywatne kontrole są tylko na hoście, nigdy w obrazie uczestnika lub repo. Publiczna projekcja wyniku nie zawiera logu builda, dzierżawy ani adresu hosta. |
+| Porównywalność | Hash obejmuje profil, narzędzia, kod wykonawczy i wersje hosta. Ranking wybiera jeden hash. Trzy próby, brak cache pomiarów między batchami, jawny zakres U. Profile CPX22 pozostają testowe. |
+
+Builder wymaga wewnętrznych helperów mapujących UID, dlatego tylko jego zewnętrzny kontener runsc ma standardowe capabilities i `no-new-privileges=false`. `--oci-worker-no-process-sandbox` pozwala instrukcjom Dockerfile oddziaływać na procesy jednorazowego BuildKit; granicą ochrony jest cały sandbox gVisora. Dysk builda pozwala wykonywać zależności, lecz host nigdy nie uruchamia plików z tego dysku. Pomiar ma oddzielny, bardziej restrykcyjny kontener i dysk `noexec`. Te ustawienia nie dają uczestnikowi uprawnień administratora hosta. Zobacz [ograniczenia rootless BuildKit](https://github.com/moby/buildkit/blob/master/docs/rootless.md) i [gVisor z Dockerem](https://gvisor.dev/docs/user_guide/quick_start/docker/).
+
+Agent/broker to zaufany proces roota zarządzający Dockerem i mountami. Jego kompromitacja oznacza przejęcie dedykowanego hosta. gVisor ogranicza powierzchnię ataku, nie stanowi dowodu niemożliwości ucieczki. Docker nadal parsuje zweryfikowane archiwum. Należy aktualizować Docker/runsc/kernel, kalibrować ponownie po zmianach, chronić token i nie współdzielić hosta z innymi usługami.
+
+Testy hosta potwierdziły blokadę sieci zewnętrznej/metadata, brak socketu, read-only root, limity PID/RAM oraz ENOSPC i świeżość ext4 po odtworzeniu. Integracja sprawdza rzeczywiste API i przetrwanie potwierdzonych zapisów po SIGKILL, a także bezpieczny import i build przypiętego startera. Surowe dowody oraz dokładne wyniki kalibracji pozostają w prywatnym raporcie operatora. Nie wykonano exploitów kernela ani testu utraty zasilania VPS. Cel poniżej 10% rozrzutu nie jest gwarancją: krótkie próby p99 są szczególnie podatne na szum.
+
+Otwarte warunki konkursu: docelowy host minimum 6 CPU / 8 GiB, zapas generatora przy docelowych VU, zamrożenie profilu, przegląd źródeł finalistów i aktualny skan zależności. Baner wyłącza Kamil. [Runbook PL/EN](../deploy/RUNNER.md) opisuje instalację, awarie i usunięcie VPS.
+
+English: the public host only serves the board. A dedicated runsc host pulls leased jobs over authenticated HTTPS. Builds/imports have bounded storage and an allowlisted egress proxy; measurements use non-root, read-only containers and separate isolated networks. Immutable sources, archive validation and normalized layer sizes precede admission. Stale leases, conflicting replay and infrastructure failures cannot publish a new board. The root agent and Docker remain trusted; gVisor is defense in depth, not proof against every escape. CPX22 is test-only. Official hardware, generator headroom, dependency review and calibration remain event-day requirements. See the bilingual runbook above.
+
+# Audyt pierwotnego schedulera (zapis historyczny)
 
 **Wniosek: poprawiono kod i zweryfikowano lokalny przepływ, ale uruchamianie dowolnych obrazów uczestników na tym samym publicznym Mikrusie nadal nie jest bezpiecznym modelem wdrożenia.** Domyślnie działa tylko web/Caddy. Scheduler wymaga jawnego profilu, zatwierdzonych lokalnych ID i przygotowanego środowiska. Automatyczny pull/clone/build został usunięty.
 

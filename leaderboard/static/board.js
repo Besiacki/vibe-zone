@@ -16,6 +16,8 @@ followLegacyBookmark();
 window.addEventListener('hashchange', followLegacyBookmark);
 function cell(text, className = '') { const td = document.createElement('td'); td.textContent = text; td.className = className; return td; }
 function render(data) {
+  const banner = document.querySelector('.test-banner');
+  if (banner && data.runner) banner.hidden = !data.runner.test_banner;
   const rows = document.querySelector('#ranking-rows'); rows.replaceChildren();
   const compact = board.dataset.compact === '1';
   const limit = Number(board.dataset.limit);
