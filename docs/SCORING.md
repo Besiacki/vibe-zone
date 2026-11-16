@@ -4,7 +4,7 @@ Profiles `full` and `parallel` freeze host versions, CPU/RAM, VU levels and timi
 
 ## English
 
-The endpoint contract remains in [API.md](API.md). The reduced smoke resource limits below were introduced for the test release on 16 November 2026; **standard competition scoring is unchanged**.
+The endpoint contract remains in [API.md](API.md). The reduced smoke resource limits below were introduced for the test release on 16 November 2026; **the definition of U and the tie-break order are unchanged**. Remote v3 has its own resource/code fingerprint and normalized image-size measurement.
 
 ### Submission and admission
 
@@ -64,9 +64,9 @@ p95 and RPS are aggregated at U in the same way. Do not average VU levels or use
 - Team order follows the stable team ID. Updates do not move teams; three repetitions run consecutively. This reduces random variation but not systematic host drift.
 - Each batch remeasures images. Identical IDs may reuse all three measurements **within that batch only**; there is no cross-batch cache.
 - Infrastructure failures (generator OOM, invalid k6 exit, CPU throttling exceeding 10% of the attempt, missing host/storage configuration, incomplete cleanup) stop publication. The previous complete ranking remains.
-- Standard requires native amd64, at least 6 CPU / 8 GiB host RAM, a frozen `BENCH_HOST_PROFILE` and verified bounded disk storage. k6 has 4 CPU / 4 GiB; the probe has 1 CPU / 256 MiB. These minima do not guarantee 30,000 VU capacity. Calibrate and freeze the environment before the competition; rerun everything after changes.
+- Standard requires native amd64, at least 6 CPU / 8 GiB host RAM, a frozen `BENCH_HOST_PROFILE` and verified bounded disk storage. Remote official `full` gives k6 4 CPU / 4 GiB and the probe 0.2 CPU / 96 MiB. The legacy local standard uses a 1 CPU / 256 MiB probe. These minima do not guarantee 30,000 VU capacity. Calibrate and freeze the environment before the competition; rerun everything after changes.
 - **Smoke (test release):** 50 posts / 100 likes, 2/5/10 VU, 2-second ramp + 5-second hold, three repetitions. SUT: 1 CPU / **256 MiB**; k6: 1 CPU / **192 MiB**, `GOMAXPROCS=1`; probe: 0.5 CPU / **96 MiB**; `/data`: **64 MiB tmpfs**. All containers have no additional swap. These caps replace the older smoke limits (2 GiB SUT, 512 MiB k6, 256 MiB probe/tmpfs). The UI labels results as tests. Smoke checks container restart, not disk durability or host restart, and cannot determine prizes or be compared with standard scores.
-- On the public shared VPS, an image allowlist restricts smoke execution to the reviewed organizer starter. Arbitrary participant code is not allowed there.
+- Production Mikrus serves only web/Caddy. Its local scheduler is disabled. The optional legacy smoke scheduler only accepts the reviewed organizer starter allowlist.
 - Three repetitions cannot eliminate noise from other processes, disk, temperature, emulation or a shared VPS. A small Mikrus is not a competition benchmark host.
 - Random checks cannot prove SQLite usage or exclude benchmark recognition. Review finalists' source and its correspondence to the approved image before awarding prizes.
 
@@ -144,14 +144,14 @@ Dokładnie równe cztery kryteria oznaczają **wspólne miejsce**, np. `1, 1, 3`
 - Kolejność zespołów jest stała według ID utworzenia zespołu; aktualizowanie zgłoszenia jej nie zmienia. Trzy powtórzenia danego obrazu odbywają się kolejno. To ogranicza losowość, ale nie usuwa systematycznego dryfu hosta.
 - Każdy batch mierzy obrazy od nowa. Ten sam ID obrazu w kilku zgłoszeniach **wewnątrz jednego batcha** może współdzielić cały wynik trzech prób. Nie ma cache między batchami.
 - Publikujemy cały batch w jednej transakcji. Rozpoznany problem infrastruktury (np. OOM generatora, nieprawidłowy exit k6, throttling CPU generatora >10% czasu próby, brak wymaganego środowiska lub niepełne sprzątanie) zatrzymuje publikację; pozostaje poprzedni pełny ranking.
-- Profil standard wymaga natywnego amd64, minimum 6 CPU i 8 GiB RAM całego hosta, identyfikatora `BENCH_HOST_PROFILE` oraz ograniczonego dyskowego `/data`. k6 ma limit 4 CPU / 4 GiB, sonda 1 CPU / 256 MiB. To minima ochronne, **nie gwarancja**, że generator obsłuży 30 000 VU; potrzebna jest kalibracja i zapas zasobów. Zasoby generatora i próg trzeba zamrozić przed konkursem, a po zmianie przeliczyć wszystkie wyniki.
+- Profil standard wymaga natywnego amd64, minimum 6 CPU i 8 GiB RAM całego hosta, identyfikatora `BENCH_HOST_PROFILE` oraz ograniczonego dyskowego `/data`. Zdalny oficjalny `full` daje k6 limit 4 CPU / 4 GiB, a sondzie 0,2 CPU / 96 MiB. Dawny lokalny standard używa sondy 1 CPU / 256 MiB. To minima ochronne, **nie gwarancja**, że generator obsłuży 30 000 VU; potrzebna jest kalibracja i zapas zasobów. Zasoby generatora i próg trzeba zamrozić przed konkursem, a po zmianie przeliczyć wszystkie wyniki.
 - Profil **smoke**: 50/100 seed, 2/5/10 VU, 2 s rampy + 5 s hold, trzy powtórzenia, SUT 1 CPU / 256 MiB, k6 1 CPU / 192 MiB (`GOMAXPROCS=1`), sonda 0,5 CPU / 96 MiB, `/data` na tmpfs 64 MiB. Sprawdza działanie i restart kontenera; **nie mierzy wydajności dysku ani trwałości po restarcie hosta**. UI oznacza go jako wyniki testowe. Nie wolno używać go do nagród ani porównywać ze standardem.
 - Trzy powtórzenia nie eliminują wpływu innych procesów, dysku, temperatury, emulacji lub obciążenia VPS. Mały Mikrus nie jest hostem pełnego konkursowego benchmarku.
 - Losowe dane i kontrole nie dowodzą, że implementacja faktycznie używa SQLite, ani nie wykluczają rozpoznawania benchmarku. Przed nagrodami wymagany jest przegląd źródeł finalistów i porównanie ich z zatwierdzonym obrazem.
 
 Raport JSON zawiera ID obrazu, narzędzia przypięte do digestów, hash profilu i skryptów, parametry hosta, trzy raporty prób z poziomami oraz wynik mediany. Przy zmianie reguł zmienia się hash; wyników z różnych profili nie należy mieszać.
 
-Zmiana wydania 16.11: zmniejszono wyłącznie limity smoke (wcześniej SUT 2 GiB, k6 512 MiB, sonda i tmpfs 256 MiB). Standard i sposób liczenia punktów pozostają bez zmian. Publiczny VPS dopuszcza wyłącznie ID sprawdzonego startera organizatora; pełny konkurs i projekty uczestników wymagają osobnych izolowanych runnerów.
+Wydanie 16.11 najpierw zmniejszyło limity lokalnego smoke (wcześniej SUT 2 GiB, k6 512 MiB, sonda i tmpfs 256 MiB). Następnie zdalny runner v3 otrzymał własne profile i normalizację rozmiaru obrazu. Definicja U oraz kolejność rozstrzygania remisów pozostają takie same. Mikrus obsługuje tylko web/Caddy; lokalny scheduler jest wyłączony. Kod uczestników wykonuje oddzielny izolowany runner.
 
 Smoke ustawia `GOMAXPROCS=1` dla przypiętego k6/Go 1.24, aby jego współbieżność odpowiadała limitowi 1 CPU. Próg odrzucenia throttlingu >10% nie zmienia się. / Smoke sets `GOMAXPROCS=1` for pinned k6/Go 1.24 to match its 1-CPU quota; the >10% throttling rejection threshold is unchanged. [Go runtime explanation](https://go.dev/blog/container-aware-gomaxprocs).
 
