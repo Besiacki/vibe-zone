@@ -31,6 +31,8 @@ class Client:
         if not self.url.startswith('https://') or len(self.token) < 32:
             raise ValueError('Verified HTTPS and a random token are required')
         self.opener = urllib.request.build_opener(NoRedirect)
+        self.opener.addheaders = [('User-Agent', 'VibeZoneRunner/1.0 (+https://github.com/bsisduck/vibe-zone)'),
+                                  ('Accept', 'application/json')]
 
     def call(self, operation, data):
         request = urllib.request.Request(self.url + '/api/runner/' + operation,
