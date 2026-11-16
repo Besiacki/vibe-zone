@@ -96,6 +96,28 @@ class RemoteTests(unittest.TestCase):
             jobs = list(pool.map(claim, range(8)))
         self.assertEqual(sum(j is not None for j in jobs), 1)
 
+    def test_parallel_batch_waits_for_every_team_and_keeps_profile(self):
+        store.submit(self.path, 'Second team', 'second/api', invitation=store.issue_invitation(self.path))
+        with store.connect(self.path) as db:
+            db.execute('UPDATE submissions SET approved_artifact=?', (json.dumps(remote.artifact('team/api@sha256:' + 'a'*64)),))
+            remote.configure(db, 'test.example', 'parallel', {}, True, time.time())
+        first, second = self.job(), self.job()
+        self.assertIsNone(self.job())
+        for index, job in enumerate((first, second)):
+            response = self.post('complete', address='test.example', id=job['id'], lease=job['lease'], result=self.result(job))
+            self.assertEqual(response.status_code, 200, response.text)
+            board = store.board(self.path)
+            self.assertEqual(len(board['ranking']), 2 if index else 0)
+        self.assertEqual(board['selected_profile'], first['profile_hash'])
+        self.assertTrue(all(row['result']['profile_hash'] == first['profile_hash'] for row in board['ranking']))
+
+    def test_machine_body_limit_allows_results_but_bounds_payload(self):
+        job = self.job()
+        payload = dict(address='test.example', id=job['id'], lease=job['lease'], result=self.result(job), log='x'*60000)
+        self.assertEqual(self.post('complete', **payload).status_code, 200)
+        payload['log'] = 'x' * (1024 * 1024)
+        self.assertEqual(self.post('complete', **payload).status_code, 413)
+
     def test_profile_budget_and_banner_guard(self):
         host = {**self.metadata, 'fingerprint': 'a'*64}
         self.assertEqual(profiles.make(host, 'parallel')['slots'], 2)
