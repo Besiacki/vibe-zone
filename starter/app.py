@@ -4,31 +4,41 @@ Writes commit to a WAL database before the HTTP response is sent, with
 synchronous=NORMAL. That setting is durable across SIGKILL (application crash):
 SQLite still recovers the WAL. It is not a power-loss mode. Feed reads are served
 from the newest 20 posts cached in memory and rebuilt from SQLite at startup.
+
+The socket loop is a single-threaded epoll/kqueue server. One vCPU cannot afford
+an asyncio callback and a thread hop on every connection, and 5000 idle
+keep-alive clients do not fit in the 4096 file-descriptor cap.
 """
-import asyncio
+import errno
+import gc
 import json
 import os
-import queue
 import re
+import selectors
 import signal
 import socket
 import sqlite3
 import sys
-import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 MAX_BODY = 16 * 1024
+MAX_DRAIN = 256 * 1024
 NAME = re.compile(r"[a-zA-Z0-9_]{1,32}\Z")
 REASONS = {200: "OK", 201: "Created", 400: "Bad Request", 404: "Not Found", 500: "Internal Server Error"}
 POST_NOT_FOUND = json.dumps({"error": "Post not found"}, separators=(",", ":")).encode()
+FEED_PREFIX = b"GET /feed HTTP/1.1\r\n"
+HEALTH_PREFIX = b"GET /health HTTP/1.1\r\n"
+READ = selectors.EVENT_READ
+WRITE = selectors.EVENT_WRITE
 
 feed = []
 like_counts = {}
-FEED_HTTP = b""
+FEED_CLOSE = b""
 db = None
-JOBS = queue.SimpleQueue()
 WRITES_SINCE_CHECKPOINT = 0
+STOP = False
 
 
 def utc_now():
@@ -66,9 +76,15 @@ def dump_post(post):
 
 
 def rebuild_feed():
-    global FEED_HTTP
+    global FEED_CLOSE
     body = b'{"posts":[]}' if not feed else b'{"posts":[' + b",".join(post["_json"] for post in feed) + b"]}"
-    FEED_HTTP = http_response(200, body)
+    FEED_CLOSE = http_response(200, body)
+
+
+BAD_REQUEST = http_response(400, error_json("Bad request"))
+BODY_LIMIT = http_response(400, error_json("Request body exceeds 16 KiB"))
+SERVER_ERROR = http_response(500, error_json("Internal error"))
+HEALTH_CLOSE = http_response(200, b'{"status":"ok"}')
 
 
 def valid_name(value):
@@ -111,7 +127,7 @@ def parse_object(raw, content_type):
 def init_db(path):
     global db
     path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(path, isolation_level=None, timeout=10, check_same_thread=False)
+    db = sqlite3.connect(path, isolation_level=None, timeout=10, check_same_thread=True)
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA synchronous=NORMAL")
     db.execute("PRAGMA temp_store=MEMORY")
@@ -148,8 +164,10 @@ def init_db(path):
         post["_json"] = dump_post(post)
         feed.append(post)
     rebuild_feed()
-    # Fold a recovered WAL back into the database so /data stays small after SIGKILL.
     db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    db.execute("PRAGMA locking_mode=EXCLUSIVE")
+    db.execute("BEGIN IMMEDIATE")
+    db.execute("COMMIT")
 
 
 def safe_rollback():
@@ -227,80 +245,23 @@ def remember(outcomes, pending):
     return results
 
 
-def finish(futures, results):
-    for fut, result in zip(futures, results):
-        if not fut.done():
-            fut.set_result(result)
-
-
-def fail(fut, exc):
-    def reject(bound=fut, error=exc):
-        if not bound.done():
-            bound.set_exception(error)
-    return reject
-
-
-def process_batch(batch):
+def perform(job):
     global WRITES_SINCE_CHECKPOINT
     pending = {}
     if db.in_transaction:
         safe_rollback()
     db.execute("BEGIN IMMEDIATE")
     try:
-        outcomes = [apply_sql(job, pending) for job, _fut in batch]
+        outcome = apply_sql(job, pending)
         db.execute("COMMIT")
-    except Exception as exc:
+    except Exception:
         safe_rollback()
-        if len(batch) == 1:
-            loop = batch[0][1].get_loop()
-            loop.call_soon_threadsafe(fail(batch[0][1], exc))
-            print(f"sqlite error: {exc.__class__.__name__}: {exc}", file=sys.stderr, flush=True)
-            return
-        for item in batch:
-            process_batch([item])
-        return
-    results = remember(outcomes, pending)
-    loop = batch[0][1].get_loop()
-    loop.call_soon_threadsafe(finish, [fut for _job, fut in batch], results)
-    WRITES_SINCE_CHECKPOINT += len(batch)
-    if WRITES_SINCE_CHECKPOINT >= 4000:
+        raise
+    WRITES_SINCE_CHECKPOINT += 1
+    if WRITES_SINCE_CHECKPOINT >= 100000:
         WRITES_SINCE_CHECKPOINT = 0
-        try:
-            db.execute("PRAGMA wal_checkpoint(PASSIVE)")
-        except sqlite3.Error as exc:
-            print(f"checkpoint error: {exc}", file=sys.stderr, flush=True)
-
-
-def worker():
-    while True:
-        first = JOBS.get()
-        if first is None:
-            try:
-                if db.in_transaction:
-                    safe_rollback()
-                db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-                db.close()
-            except sqlite3.Error as exc:
-                print(f"shutdown error: {exc}", file=sys.stderr, flush=True)
-            return
-        batch = [first]
-        while len(batch) < 32:
-            try:
-                nxt = JOBS.get_nowait()
-            except queue.Empty:
-                break
-            if nxt is None:
-                JOBS.put(None)
-                break
-            batch.append(nxt)
-        process_batch(batch)
-
-
-async def submit(job):
-    loop = asyncio.get_running_loop()
-    fut = loop.create_future()
-    JOBS.put((job, fut))
-    return await fut
+        db.execute("PRAGMA wal_checkpoint(PASSIVE)")
+    return remember([outcome], pending)[0]
 
 
 def headers_of(lines):
@@ -318,34 +279,11 @@ def headers_of(lines):
     return headers
 
 
-async def read_body(reader, headers):
-    if "transfer-encoding" in headers:
-        raise ValueError("Chunked transfer is not supported")
-    raw_length = headers.get("content-length")
-    if raw_length is None:
-        return b""
-    if not raw_length.isdigit():
-        raise ValueError("Invalid Content-Length")
-    length = int(raw_length)
-    if length > MAX_BODY:
-        if length <= 256 * 1024:
-            remaining = length
-            while remaining:
-                chunk = await reader.read(min(65536, remaining))
-                if not chunk:
-                    break
-                remaining -= len(chunk)
-        raise ValueError("Request body exceeds 16 KiB")
-    if length == 0:
-        return b""
-    return await reader.readexactly(length)
-
-
-async def dispatch(method, path, headers, body):
+def dispatch(method, path, headers, body):
     if method == "GET" and path == "/health":
-        return http_response(200, b'{"status":"ok"}')
+        return HEALTH_CLOSE
     if method == "GET" and path == "/feed":
-        return FEED_HTTP
+        return FEED_CLOSE
     if method == "POST" and path in ("/posts", "/like"):
         try:
             payload = parse_object(body, headers.get("content-type"))
@@ -358,83 +296,268 @@ async def dispatch(method, path, headers, body):
         except ValueError as exc:
             return http_response(400, error_json(str(exc)))
         try:
-            status, response_body = await submit(job)
+            status, response_body = perform(job)
         except Exception:
-            return http_response(500, error_json("Internal error"))
+            return SERVER_ERROR
         return http_response(status, response_body)
     return http_response(404, error_json("Not found"))
 
 
-async def handle(reader, writer):
-    try:
-        sock = writer.get_extra_info("socket")
-        if sock is not None:
+class Conn:
+    __slots__ = ("sock", "buf", "out", "sent", "seen", "watched", "header_end", "meta", "discard")
+
+    def __init__(self, sock):
+        self.sock = sock
+        self.buf = None
+        self.out = None
+        self.sent = 0
+        self.seen = time.monotonic()
+        self.watched = False
+        self.header_end = None
+        self.meta = None
+        self.discard = 0
+
+
+def serve(port):
+    global STOP
+    selector = selectors.DefaultSelector()
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("0.0.0.0", port))
+    listener.listen(4096)
+    listener.setblocking(False)
+    selector.register(listener, READ, None)
+    waiting = []
+    accept_paused = False
+    quickack = getattr(socket, "TCP_QUICKACK", None)
+
+    def drop(conn):
+        nonlocal accept_paused
+        if conn.watched:
+            try:
+                selector.unregister(conn.sock)
+            except (KeyError, ValueError):
+                pass
+            conn.watched = False
+        try:
+            conn.sock.close()
+        except OSError:
+            pass
+        if accept_paused:
+            selector.register(listener, READ, None)
+            accept_paused = False
+
+    def watch(conn, event):
+        conn.seen = time.monotonic()
+        if conn.watched:
+            selector.modify(conn.sock, event, conn)
+        else:
+            selector.register(conn.sock, event, conn)
+            conn.watched = True
+            waiting.append(conn)
+
+    def try_send(conn):
+        payload = conn.out
+        try:
+            chunk = payload if conn.sent == 0 else memoryview(payload)[conn.sent:]
+            sent = conn.sock.send(chunk)
+        except BlockingIOError:
+            watch(conn, WRITE)
+            return
+        except OSError:
+            drop(conn)
+            return
+        if sent <= 0:
+            drop(conn)
+            return
+        conn.sent += sent
+        if conn.sent >= len(payload):
+            drop(conn)
+            return
+        watch(conn, WRITE)
+
+    def arm(conn, payload):
+        conn.buf = None
+        conn.out = payload
+        conn.sent = 0
+        try_send(conn)
+
+    def stash(conn, blob):
+        if conn.buf is None:
+            conn.buf = bytearray(blob)
+
+    def respond_parsed(conn, method, path, headers, body):
+        try:
+            arm(conn, dispatch(method, path, headers, body))
+        except Exception as exc:
+            print(f"request error: {exc.__class__.__name__}: {exc}", file=sys.stderr, flush=True)
+            arm(conn, SERVER_ERROR)
+
+    def pull(conn):
+        try:
+            chunk = conn.sock.recv(8192)
+        except BlockingIOError:
+            watch(conn, READ)
+            return
+        except OSError:
+            drop(conn)
+            return
+        if not chunk:
+            drop(conn)
+            return
+        conn.seen = time.monotonic()
+        if conn.discard:
+            conn.discard -= len(chunk)
+            if conn.discard <= 0:
+                arm(conn, BODY_LIMIT)
+            else:
+                watch(conn, READ)
+            return
+        if conn.buf is not None:
+            conn.buf.extend(chunk)
+            blob = conn.buf
+        else:
+            blob = chunk
+        if conn.header_end is None:
+            header_end = blob.find(b"\r\n\r\n")
+            if header_end < 0:
+                if len(blob) > 8192:
+                    arm(conn, BAD_REQUEST)
+                    return
+                stash(conn, blob)
+                watch(conn, READ)
+                return
+            if blob.startswith(FEED_PREFIX):
+                arm(conn, FEED_CLOSE)
+                return
+            if blob.startswith(HEALTH_PREFIX):
+                arm(conn, HEALTH_CLOSE)
+                return
+            head = blob[:header_end]
+            lines = head.split(b"\r\n")
+            if not lines or len(lines) > 64 or len(lines[0]) > 2048:
+                arm(conn, BAD_REQUEST)
+                return
+            parts = lines[0].decode("latin1").split(" ")
+            if len(parts) != 3 or not parts[1].startswith("/"):
+                arm(conn, BAD_REQUEST)
+                return
+            method, path = parts[0], parts[1].split("?", 1)[0]
+            try:
+                headers = headers_of(lines[1:])
+            except ValueError as exc:
+                arm(conn, http_response(400, error_json(str(exc))))
+                return
+            if "transfer-encoding" in headers:
+                arm(conn, http_response(400, error_json("Chunked transfer is not supported")))
+                return
+            raw_length = headers.get("content-length")
+            if raw_length is None:
+                length = 0
+            elif not raw_length.isdigit():
+                arm(conn, http_response(400, error_json("Invalid Content-Length")))
+                return
+            else:
+                length = int(raw_length)
+            if length > MAX_BODY:
+                have = len(blob) - (header_end + 4)
+                target = min(length, MAX_DRAIN)
+                if have >= target:
+                    arm(conn, BODY_LIMIT)
+                    return
+                conn.discard = target - have
+                stash(conn, blob)
+                watch(conn, READ)
+                return
+            body_at = header_end + 4
+            have = len(blob) - body_at
+            if have >= length:
+                body = bytes(blob[body_at:body_at + length])
+                respond_parsed(conn, method, path, headers, body)
+                return
+            conn.header_end = header_end
+            conn.meta = (method, path, headers, length)
+            stash(conn, blob)
+            watch(conn, READ)
+            return
+        method, path, headers, length = conn.meta
+        body_at = conn.header_end + 4
+        if len(blob) - body_at < length:
+            watch(conn, READ)
+            return
+        body = bytes(blob[body_at:body_at + length])
+        respond_parsed(conn, method, path, headers, body)
+
+    def accept_all():
+        nonlocal accept_paused
+        while True:
+            try:
+                sock, _addr = listener.accept()
+            except BlockingIOError:
+                return
+            except OSError as exc:
+                if exc.errno in (errno.EMFILE, errno.ENFILE) and not accept_paused:
+                    selector.unregister(listener)
+                    accept_paused = True
+                    print("accept paused: too many open files", file=sys.stderr, flush=True)
+                return
+            sock.setblocking(False)
             try:
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                if quickack is not None:
+                    sock.setsockopt(socket.IPPROTO_TCP, quickack, 1)
             except OSError:
                 pass
-        try:
-            blob = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), 10)
-        except (asyncio.TimeoutError, asyncio.IncompleteReadError, ConnectionError, asyncio.LimitOverrunError):
-            return
-        head, _, _rest = blob.partition(b"\r\n\r\n")
-        lines = head.split(b"\r\n")
-        if not lines or len(lines) > 64 or len(lines[0]) > 2048:
-            writer.write(http_response(400, error_json("Bad request")))
-            await writer.drain()
-            return
-        parts = lines[0].decode("latin1").split(" ")
-        if len(parts) != 3 or not parts[1].startswith("/"):
-            writer.write(http_response(400, error_json("Bad request")))
-            await writer.drain()
-            return
-        method, path = parts[0], parts[1].split("?", 1)[0]
-        try:
-            header_map = headers_of(lines[1:])
-            body = await asyncio.wait_for(read_body(reader, header_map), 10)
-            response = await dispatch(method, path, header_map, body)
-        except ValueError as exc:
-            response = http_response(400, error_json(str(exc)))
-        except (asyncio.TimeoutError, asyncio.IncompleteReadError, ConnectionError):
-            return
-        writer.write(response)
-        await writer.drain()
-    except (ConnectionError, BrokenPipeError, asyncio.IncompleteReadError):
-        return
-    except Exception as exc:
-        print(f"request error: {exc.__class__.__name__}: {exc}", file=sys.stderr, flush=True)
-        try:
-            writer.write(http_response(500, error_json("Internal error")))
-            await writer.drain()
-        except Exception:
-            return
-    finally:
-        writer.close()
-        try:
-            await writer.wait_closed()
-        except Exception:
-            pass
+            pull(Conn(sock))
 
+    def sweep(now):
+        if not waiting:
+            return
+        alive = []
+        for conn in waiting:
+            if not conn.watched:
+                continue
+            if now - conn.seen > 8:
+                drop(conn)
+            else:
+                alive.append(conn)
+        waiting[:] = alive
+        gc.collect()
 
-async def serve(port):
-    thread = threading.Thread(target=worker, name="sqlite-writer", daemon=False)
-    thread.start()
-    server = await asyncio.start_server(handle, "0.0.0.0", port, backlog=4096, limit=65536)
-    stop = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            loop.add_signal_handler(sig, stop.set)
-        except NotImplementedError:
-            signal.signal(sig, lambda *_args: stop.set())
-    sockets = ", ".join(str(sock.getsockname()) for sock in server.sockets or [])
-    print(f"listening {sockets}", flush=True)
-    async with server:
-        await stop.wait()
-        server.close()
-        await server.wait_closed()
-    JOBS.put(None)
-    await asyncio.to_thread(thread.join, 4)
+    def request_stop(*_args):
+        global STOP
+        STOP = True
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
+    gc.disable()
+    gc.collect()
+    gc.freeze()
+    print(f"listening ('0.0.0.0', {port})", flush=True)
+    next_sweep = time.monotonic() + 1
+    while not STOP:
+        events = selector.select(0.5)
+        if events:
+            for key, mask in events:
+                if key.fileobj is listener:
+                    accept_all()
+                elif mask & WRITE:
+                    try_send(key.data)
+                else:
+                    pull(key.data)
+        now = time.monotonic()
+        if now >= next_sweep:
+            sweep(now)
+            next_sweep = now + 1
+    try:
+        if db.in_transaction:
+            safe_rollback()
+        db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        db.close()
+    except sqlite3.Error as exc:
+        print(f"shutdown error: {exc}", file=sys.stderr, flush=True)
+    selector.close()
+    listener.close()
 
 
 def main():
@@ -447,7 +570,7 @@ def main():
         print(f"startup failed: {exc.__class__.__name__}: {exc}", file=sys.stderr, flush=True)
         raise SystemExit(1) from None
     try:
-        asyncio.run(serve(port))
+        serve(port)
     except KeyboardInterrupt:
         raise SystemExit(0) from None
 
